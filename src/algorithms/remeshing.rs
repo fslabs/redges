@@ -309,7 +309,7 @@ where
         let eid = EdgeId(i);
         let e = mesh.edge_handle(eid);
         // Don't flip if this would either break topology or flip a feature edge.
-        if !e.can_flip() || e.is_boundary() || is_feature_edge(&e) {
+        if e.is_boundary() || e.hedge().radial_loop().count() != 2 || e.hedge().source().id() == e.hedge().radial_next().source().id() || !e.can_flip() || is_feature_edge(&e) {
             continue;
         }
 
