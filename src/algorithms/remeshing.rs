@@ -359,47 +359,82 @@ where
     VertData<R>: InnerSpace<S>,
     S: RealField + Mul<VertData<R>, Output = VertData<R>>,
 {
-    let normals: Vec<_> = mesh
-        .meta_faces()
-        .map(|f| {
-            let vs: Vec<_> = f.vertices().take(3).map(|v| v.data().clone()).collect();
-            let d1 = vs[1].clone() - vs[0].clone();
-            let d2 = vs[2].clone() - vs[0].clone();
+    let zero = S::from(0.0).unwrap();
 
-            d1.cross(&d2).normalized()
-        })
-        .collect();
-
-    let get_normal = |id: usize| normals[id].clone();
-
-    let mut barycenters = vec![VertData::<R>::default(); mesh.vert_count()];
-    let mut valences = vec![0; mesh.vert_count()];
-    for vert in mesh.meta_verts() {
-        let mut valence = 0;
-        for neighbour in vert.neighbours() {
-            barycenters[neighbour.id().0] += neighbour.data().clone();
-            valence += 1;
+    // Per-vertex normals: average of the incident face normals, weighted by the cosine of the
+    // face's corner angle at the vertex. Faces with zero area contribute the zero vector.
+    let mut normals = vec![VertData::<R>::default(); mesh.vert_count()];
+    for f in mesh.meta_faces() {
+        let corners: Vec<_> = f
+            .vertices()
+            .take(3)
+            .map(|v| (v.id().0, v.data().clone()))
+            .collect();
+        if corners.len() < 3 {
+            continue;
         }
-        valences[vert.id().0] = valence;
+
+        let cross = (corners[1].1.clone() - corners[0].1.clone())
+            .cross(&(corners[2].1.clone() - corners[0].1.clone()));
+        let cross_norm = cross.norm();
+        // No true normal when the area is 0.
+        if !(cross_norm > zero) {
+            continue;
+        }
+        let face_normal = cross * (S::from(1.0).unwrap() / cross_norm);
+
+        for k in 0..3 {
+            let p = corners[k].1.clone();
+            let e1 = corners[(k + 1) % 3].1.clone() - p.clone();
+            let e2 = corners[(k + 2) % 3].1.clone() - p;
+            let denom = e1.norm() * e2.norm();
+            if !(denom > zero) {
+                continue;
+            }
+            let cos = e1.dot(&e2) / denom;
+            // Obtuse corners would give negative weights, which would flip the contribution.
+            let weight = if cos > zero { cos } else { zero };
+            normals[corners[k].0] += face_normal.clone() * weight;
+        }
+    }
+    for n in normals.iter_mut() {
+        let norm = n.norm();
+        *n = if norm > zero {
+            n.clone() * (S::from(1.0).unwrap() / norm)
+        } else {
+            VertData::<R>::default()
+        };
     }
 
-    for (i, &valence) in valences.iter().enumerate() {
-        barycenters[i] =
-            barycenters[i].clone() * (S::from(1.0).unwrap() / S::from(valence).unwrap());
+    let mut barycenters = vec![VertData::<R>::default(); mesh.vert_count()];
+    let mut valences = vec![0usize; mesh.vert_count()];
+    for vert in mesh.meta_verts() {
+        let mut valence = 0;
+        let mut sum = VertData::<R>::default();
+        for neighbour in vert.neighbours() {
+            sum += neighbour.data().clone();
+            valence += 1;
+        }
+        let i = vert.id().0;
+        valences[i] = valence;
+        if valence > 0 {
+            barycenters[i] = sum * (S::from(1.0).unwrap() / S::from(valence).unwrap());
+        }
     }
 
     // This is way more readable the way it is.
     #[allow(clippy::needless_range_loop)]
     for i in 0..mesh.vert_data.len() {
         let vert = mesh.vert_data.get_mut(i as u64);
-        if corner_verts.contains(&VertId(i)) {
+        // Isolated or inactive vertices have no neighbours: leave them where they are.
+        if corner_verts.contains(&VertId(i)) || valences[i] == 0 {
             continue;
         }
-        let normal = get_normal(i);
-        let mut pos = vert.clone();
-        pos = pos.clone() + normal.clone() * normal.dot(&(pos.clone() - barycenters[i].clone()));
-
-        *vert = pos;
+        let normal = normals[i].clone();
+        // Move to the barycentre but keep the component along the normal, so the vertex only
+        // slides tangentially: p' = q + n n^T (p - q).
+        let offset = vert.clone() - barycenters[i].clone();
+        *vert = barycenters[i].clone() + normal.clone() * normal.dot(&offset);
     }
 }
 
