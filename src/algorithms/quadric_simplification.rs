@@ -910,6 +910,28 @@ where
     )
 }
 
+/// Cheap, scale-independent safety check for the solve of a symmetric positive definite quadric
+/// `A = L L^T`. Since `kappa(L) >= max|l_ii| / min|l_ii|` and `kappa(A) = kappa(L)^2`, the squared
+/// ratio of the diagonal of the Cholesky factor is a lower bound for the condition number of `A`.
+fn cholesky_is_well_conditioned<S: ComplexField>(l: &Matrix3<S>) -> bool {
+    const MAX_QUADRIC_CONDITION_NUMBER: f64 = 1.0e6;
+
+    let diagonal: Vec<S::RealField> = (0..3).map(|i| l[(i, i)].clone().abs()).collect();
+    let mut smallest = diagonal[0].clone();
+    let mut largest = diagonal[0].clone();
+    for d in diagonal {
+        if d < smallest {
+            smallest = d.clone();
+        }
+        if d > largest {
+            largest = d;
+        }
+    }
+    let max_ratio = nalgebra::convert::<f64, S::RealField>(MAX_QUADRIC_CONDITION_NUMBER.sqrt());
+    // Written so that NaNs and a zero factor are rejected.
+    largest > nalgebra::zero::<S::RealField>() && smallest * max_ratio > largest
+}
+
 /// Compute the QEM error of an edge, ignoring attributes.
 pub fn edge_cost_without_attributes<'r, S, R: RedgeContainers>(
     edge: &EdgeHandle<'r, R>,
@@ -1020,14 +1042,14 @@ where
                 add_phantom_plane(&e, q, b, S::from(0.00000001).unwrap());
             }
         }
-        // Update the determinant.
-        let det = q.determinant();
-
-        // Safety check to prevent numerical problems when solving the system.
-        if Float::abs(det) <= S::from(epsilon).unwrap() || v1_is_fixed || v2_is_fixed {
+        // Safety check to prevent numerical problems when solving the system: the estimated
+        // condition number is independent of the scale of the mesh, unlike the determinant.
+        if v1_is_fixed || v2_is_fixed {
             return None;
         }
-        (*q).cholesky().map(|system| system.solve(&-*b))
+        (*q).cholesky()
+            .filter(|system| cholesky_is_well_conditioned(&system.l()))
+            .map(|system| system.solve(&-*b))
     };
 
     let (mut optimal, mut cost) = match solve(&mut q, &mut b) {
@@ -1087,7 +1109,10 @@ where
     let v1 = Vector3::new(v1[0], v1[1], v1[2]);
     let v2 = edge.v2().data().clone();
     let v2 = Vector3::new(v2[0], v2[1], v2[2]);
-    if (p - mid).norm() > (v1 - v2).norm() * S::from(4.).unwrap().real() {
+    const MAX_OPTIMUM_DISPLACEMENT_IN_EDGE_LENGTHS: f64 = 1.0;
+    if (p - mid).norm()
+        > (v1 - v2).norm() * S::from(MAX_OPTIMUM_DISPLACEMENT_IN_EDGE_LENGTHS).unwrap().real()
+    {
         optimal[0] = mid[0];
         optimal[1] = mid[1];
         optimal[2] = mid[2];
