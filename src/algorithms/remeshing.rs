@@ -383,7 +383,7 @@ where
             .cross(&(corners[2].1.clone() - corners[0].1.clone()));
         let cross_norm = cross.norm();
         // No true normal when the area is 0.
-        if !(cross_norm > zero) {
+        if cross_norm.partial_cmp(&zero) != Some(core::cmp::Ordering::Greater) {
             continue;
         }
         let face_normal = cross * (S::from(1.0).unwrap() / cross_norm);
@@ -393,7 +393,7 @@ where
             let e1 = corners[(k + 1) % 3].1.clone() - p.clone();
             let e2 = corners[(k + 2) % 3].1.clone() - p;
             let denom = e1.norm() * e2.norm();
-            if !(denom > zero) {
+            if denom.partial_cmp(&zero) != Some(core::cmp::Ordering::Greater) {
                 continue;
             }
             let cos = e1.dot(&e2) / denom;

@@ -1265,6 +1265,7 @@ mod tests {
 
     // Let's not make it a test for now, since we would need to add the assets.
     #[test]
+    #[ignore = "needs assets/armadillo.obj, which is not committed"]
     fn _test_quadric_simplification_closed() {
         let ObjData {
             vertices,
