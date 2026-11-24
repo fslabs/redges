@@ -1111,7 +1111,10 @@ where
     let v2 = Vector3::new(v2[0], v2[1], v2[2]);
     const MAX_OPTIMUM_DISPLACEMENT_IN_EDGE_LENGTHS: f64 = 1.0;
     if (p - mid).norm()
-        > (v1 - v2).norm() * S::from(MAX_OPTIMUM_DISPLACEMENT_IN_EDGE_LENGTHS).unwrap().real()
+        > (v1 - v2).norm()
+            * S::from(MAX_OPTIMUM_DISPLACEMENT_IN_EDGE_LENGTHS)
+                .unwrap()
+                .real()
     {
         optimal[0] = mid[0];
         optimal[1] = mid[1];
@@ -1262,6 +1265,7 @@ mod tests {
 
     // Let's not make it a test for now, since we would need to add the assets.
     #[test]
+    #[ignore = "needs assets/armadillo.obj, which is not committed"]
     fn _test_quadric_simplification_closed() {
         let ObjData {
             vertices,
